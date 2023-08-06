@@ -1,0 +1,71 @@
+# R Notebook
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(dplyr)
+library(readr)
+library(did)
+
+# Loading Airbnb listings data
+Amsterdam_listings <- read_csv("Amsterdam_listings.csv", show_col_types = FALSE)
+data <- Amsterdam_listings[sample(1:nrow(Amsterdam_listings), 2500),]
+df <- data %>% select(
+  latitude, longitude, minimum_nights, calculated_host_listings_count,
+  number_of_reviews, reviews_per_month, availability_365, price
+)
+
+# Loading Housing prices data
+df1 <- read_csv("House_Price.csv", show_col_types = FALSE)
+Housing_Prices <- cbind(df, df1)
+
+# Removing/dropping missing observations
+listings_house_prices_did_clean <- Housing_Prices %>% na.omit()
+
+# Difference in differences (DID)
+out <- att_gt(
+  yname = "House_price",
+  gname = "First.treatment",
+  idname = "Regions.Id",
+  tname = "year",
+  xformla = ~price,
+  data = listings_house_prices_did_clean,
+  est_method = "reg",
+  panel = FALSE
+)
+summary(out)
+
+# Plotting the results
+ggdid(out, ylim = c(-200, 200))
+
+# Calculating the average treatment effect over time
+es <- aggte(out, type = "dynamic")
+ggdid(es)
+
+# Performing the parallel trend test using t-test
+# Create a variable to indicate whether the observation is in the treatment group
+listings_house_prices_did_clean <- listings_house_prices_did_clean %>%
+  mutate(TreatmentGroup = ifelse(year >= 2020, 1, 0))
+
+# Separate the data into treatment and control groups
+treatment_group <- listings_house_prices_did_clean %>%
+  filter(TreatmentGroup == 1)
+
+control_group <- listings_house_prices_did_clean %>%
+  filter(TreatmentGroup == 0)
+
+# Perform the parallel trend test (e.g., using t-test)
+trend_test_result <- t.test(House_price ~ year, data = listings_house_prices_did_clean)
+
+# Print the result
+print(trend_test_result)
+
+# Creating a Time variable and fitting a linear model
+house_prices_did <- listings_house_prices_did_clean %>% 
+  mutate(Time = ifelse(year >= 2020, 1, 0)) %>%
+  select(Time, First.treatment, House_price) 
+
+DDI_Model <- lm(House_price ~ Time * First.treatment, data = house_prices_did)
+summary(DDI_Model)
+
+# Displaying the tabular model summary
+tab_model(DDI_Model)
